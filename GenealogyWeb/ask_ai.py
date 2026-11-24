@@ -21,7 +21,6 @@ api_key = "AQVNzCVq9C-n8itOFh6aJrcC_C_7a2Rfptwaubrc"      # <-- ВСТАВЬТЕ
 url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
 headers = {
     "Authorization": f"Api-Key {api_key}",
-    "x-folder-id": folder_id,
     "Content-Type": "application/json"
 }
 
