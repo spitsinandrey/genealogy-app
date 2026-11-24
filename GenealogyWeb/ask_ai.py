@@ -47,7 +47,7 @@ while True:
 Ответ:"""
 
     payload = {
-        "modelUri": f"gpt://{folder_id}/yandexgpt",
+        "modelUri": f"gpt://{folder_id}/yandexgpt/latest",
         "completionOptions": {
             "stream": False,
             "temperature": 0.1,
