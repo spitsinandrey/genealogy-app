@@ -17,28 +17,21 @@ BASE_DIR = os.path.dirname(__file__)
 @st.cache_resource
 def load_vectorstore():
     embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
-    
     chroma_path = os.path.join(BASE_DIR, "chroma_db_v2")
     txt_path = os.path.join(BASE_DIR, "my_family_knowledge.txt")
     
     vectorstore = Chroma(persist_directory=chroma_path, embedding_function=embeddings)
     
-    # Если база пустая, пересобираем её
     if vectorstore._collection.count() == 0:
-        st.info("Пересоздаем базу знаний (разделяем людей по одному)...")
+        st.info("Пересоздаем базу знаний...")
         if os.path.exists(txt_path):
             with open(txt_path, "r", encoding="utf-8") as f:
                 content = f.read()
-            
-            # Разделяем файл по маркеру --- (один человек = один документ)
             raw_people = content.split("---")
-            
-            # Очищаем пустые куски и создаем документы LangChain
             docs = [Document(page_content=p.strip()) for p in raw_people if p.strip()]
-            
             vectorstore = Chroma.from_documents(documents=docs, embedding=embeddings, persist_directory=chroma_path)
         else:
-            st.error(f"Файл не найден по пути: {txt_path}")
+            st.error("Файл базы знаний не найден.")
             
     return vectorstore
 
@@ -60,11 +53,33 @@ with st.form("my_form"):
 if submitted and question:
     with st.spinner("Ищу в дереве и думаю над ответом..."):
         try:
-            # Теперь ищем 3 самых близких человека
-            docs = vectorstore.similarity_search(question, k=3)
-            context_text = "\n\n".join([d.page_content for d in docs])
+            # --- УМНЫЙ ПОИСК ---
+            # 1. Извлекаем все документы из базы
+            all_docs = vectorstore.get()['documents']
+            
+            # 2. Ищем точные совпадения по словам из вопроса (длиной больше 3 символов)
+            # Это поможет найти "Спицин", "Андрей", "Мавра" и т.д.
+            words_to_find = [word.lower().strip("?.,!") for word in question.split() if len(word) > 3]
+            
+            exact_matches = []
+            for doc in all_docs:
+                doc_lower = doc.lower()
+                if any(word in doc_lower for word in words_to_find):
+                    exact_matches.append(doc)
+            
+            # Если нашли точные совпадения, берем первые 3
+            if exact_matches:
+                final_docs = exact_matches[:3]
+                search_type = "Точный поиск по словам"
+            else:
+                # Если не нашли, используем векторный поиск (по смыслу)
+                docs = vectorstore.similarity_search(question, k=3)
+                final_docs = [d.page_content for d in docs]
+                search_type = "Поиск по смыслу (векторный)"
 
-            with st.expander("🛠️ Посмотреть, что нашла база (Контекст)"):
+            context_text = "\n\n".join(final_docs)
+
+            with st.expander(f"🛠️ Что нашла база ({search_type})"):
                 st.write(context_text)
 
             folder_id = st.secrets["YANDEX_FOLDER_ID"]
@@ -76,7 +91,7 @@ if submitted and question:
                 "Content-Type": "application/json"
             }
 
-            prompt = f"""Ты — помощник по генеалогии. В тексте ниже имена могут быть записаны в виде кортежей, например: ('Иван', 'Рязанцев'). Игнорируй скобки, кавычки и запятые, воспринимай это как обычное имя (Иван Рязанцев). Отвечай на вопрос пользователя, используя ТОЛЬКО предоставленный контекст. Если в контексте нет ответа, скажи 'В данных нет этой информации'.
+            prompt = f"""Ты — помощник по генеалогии. Отвечай на вопрос пользователя, используя ТОЛЬКО предоставленный контекст. Если в контексте нет ответа, скажи 'В данных нет этой информации'.
             
 Контекст:
 {context_text}
