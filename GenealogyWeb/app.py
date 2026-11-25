@@ -15,6 +15,7 @@ TXT_PATH = os.path.join(BASE_DIR, "my_family_knowledge.txt")
 def load_people():
     with open(TXT_PATH, "r", encoding="utf-8") as f:
         content = f.read()
+    # Разделяем по маркеру ---, убираем пустые строки
     return [p.strip() for p in content.split("---") if p.strip()]
 
 
@@ -37,25 +38,26 @@ with st.form("my_form"):
 if submitted and question:
     with st.spinner("Ищу в дереве и думаю над ответом..."):
         try:
+            # Подготовка слов для поиска
             words_to_find = [w.lower().strip("?.,!«»\"'") for w in question.split() if len(w) > 3]
 
-            # Инициализируем пустой список для результатов
+            # ИСПРАВЛЕНО: Корректная инициализация пустого списка
             scored = 
             
             for doc in people:
                 doc_lower = doc.lower()
                 lines = doc_lower.splitlines()
                 
-                # Берем первую строку как имя (если она есть)
+                # Первая строка документа — обычно там ФИО
                 first_line = lines if lines else ""
                 
-                # Базовый счет совпадений слов во всем документе
+                # 1. Базовый счет совпадений слов во всем документе
                 score = sum(1 for w in words_to_find if w in doc_lower)
                 
-                # Бонус за совпадение в имени (первой строке)
+                # 2. Бонус +2 за каждое слово из вопроса в имени (первая строка)
                 score += 2 * sum(1 for w in words_to_find if w in first_line)
                 
-                # Бонус за совпадение в строках с местом
+                # 3. Бонус +1 за каждое слово из вопроса в строках с местом
                 for line in lines:
                     if "место:" in line or "место рождения:" in line or "место проживания:" in line:
                         score += 1 * sum(1 for w in words_to_find if w in line)
@@ -69,7 +71,7 @@ if submitted and question:
                 final_docs = [doc for s, doc in scored[:5]]
                 search_type = "Точный поиск по словам"
             else:
-                # Резервный поиск по похожести имени
+                # Резервный поиск: сравниваем вопрос с именами по похожести
                 q = question.lower()
                 
                 def get_name_for_fuzzy(d):
@@ -83,13 +85,17 @@ if submitted and question:
                 )[:5]
                 
                 best_line = get_name_for_fuzzy(fuzzy) if fuzzy else ""
+                
+                # Проверяем порог схожести
                 if fuzzy and SequenceMatcher(None, q, best_line).ratio() > 0.45:
                     final_docs = fuzzy
                     search_type = "Поиск по похожести имени"
                 else:
+                    # ИСПРАВЛЕНО: Присваиваем пустой список явно
                     final_docs = 
                     search_type = "Ничего не найдено"
 
+            # Блок вывода найденных документов
             if final_docs:
                 context_text = "\n\n".join(final_docs)
                 with st.expander(f"🛠️ Что нашла база ({search_type})"):
@@ -99,7 +105,7 @@ if submitted and question:
                 st.write("В данных нет этой информации.")
                 st.stop()
 
-            # --- Блок API ---
+            # --- Блок API (YandexGPT) ---
             folder_id = st.secrets["YANDEX_FOLDER_ID"]
             api_key = st.secrets["YANDEX_API_KEY"]
 
@@ -144,7 +150,7 @@ if submitted and question:
             response.raise_for_status()
 
             data = response.json()
-            # Получаем текст ответа из первого варианта
+            # ИСПРАВЛЕНО: Правильный доступ к тексту ответа (alternatives - это список)
             answer = data['result']['alternatives']['message']['text']
             
             st.markdown("### Ответ:")
@@ -156,3 +162,4 @@ if submitted and question:
             st.error(f"Неожиданный формат ответа от API: {e}")
         except Exception as e:
             st.error(f"Произошла непредвиденная ошибка: {e}")
+
