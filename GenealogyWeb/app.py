@@ -91,7 +91,7 @@ if submitted and question:
                     search_type = "Поиск по похожести имени"
                 else:
                     # ИСПРАВЛЕНО: Присваиваем пустой список явно
-                    final_docs = 
+                    final_docs = []
                     search_type = "Ничего не найдено"
 
             # Блок вывода найденных документов
