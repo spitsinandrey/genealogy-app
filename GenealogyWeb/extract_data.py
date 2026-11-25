@@ -6,7 +6,13 @@
 import re
 
 # >>> ВАЖНО: укажите здесь точное имя вашего GEDCOM-файла (он в той же папке, что и этот скрипт)
-GEDCOM_FILE = "Familio_gedcom.ged"
+import glob
+ged_files = glob.glob("*.ged")
+if not ged_files:
+    raise SystemExit("GEDCOM-файл (.ged) не найден в этой папке!")
+GEDCOM_FILE = ged_files[0]
+print(f"Использую файл: {GEDCOM_FILE}")
+
 OUTPUT_FILE = "my_family_knowledge.txt"
 
 MONTHS = {
@@ -31,6 +37,7 @@ def read_text(path):
 def format_date(d):
     if not d:
         return "неизвестно"
+    d = re.sub(r"@#D[A-Z]+@", "", d)  # убираем пометки календарей вроде @#DJULIAN@
     d = d.strip()
     prefix = ""
     for k, v in PREFIXES.items():
