@@ -1,4 +1,4 @@
-﻿import streamlit as st
+import streamlit as st
 import requests
 import urllib3
 from langchain_community.vectorstores import Chroma
@@ -30,17 +30,21 @@ with st.form("my_form"):
 if submitted and question:
     with st.spinner("Ищу в дереве и думаю над ответом..."):
         try:
-            docs = vectorstore.similarity_search(question, k=3)
+            # Ищем 5 кусков текста вместо 3, чтобы повысить шансы найти нужного человека
+            docs = vectorstore.similarity_search(question, k=5)
             context_text = "\n\n".join([d.page_content for d in docs])
 
-            # Ключи берем из секретов Streamlit (вы их настроите на сайте)
+            # --- БЛОК ОТЛАДКИ (теперь он вне текста запроса) ---
+            with st.expander("🛠️ Посмотреть, что нашла база (Контекст)"):
+                st.write(context_text)
+            # ----------------------------------------------------
+
             folder_id = st.secrets["YANDEX_FOLDER_ID"]
             api_key = st.secrets["YANDEX_API_KEY"]
             
             url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
             headers = {
                 "Authorization": f"Api-Key {api_key}",
-                "x-folder-id": folder_id,
                 "Content-Type": "application/json"
             }
 
@@ -48,15 +52,12 @@ if submitted and question:
             
 Контекст:
 {context_text}
-# Временный блок для отладки: показываем, что нашла база
-with st.expander("🛠️ Посмотреть, что нашла база (Контекст)"):
-    st.write(context_text)
 
 Вопрос: {question}
 Ответ:"""
 
             payload = {
-                "modelUri": f"gpt://{folder_id}/yandexgpt-lite",
+                "modelUri": f"gpt://{folder_id}/yandexgpt-lite/latest",
                 "completionOptions": {"stream": False, "temperature": 0.1, "maxTokens": 1000},
                 "messages": [{"role": "user", "text": prompt}]
             }
