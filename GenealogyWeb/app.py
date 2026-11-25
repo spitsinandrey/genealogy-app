@@ -94,16 +94,16 @@ if submitted and question:
                 st.write("В данных нет этой информации.")
                 st.stop()
 
-            folder_id = st.secrets["YANDEX_FOLDER_ID"]
+                       folder_id = st.secrets["YANDEX_FOLDER_ID"]
             api_key = st.secrets["YANDEX_API_KEY"]
 
             url = "https://llm.api.cloud.yandex.net/foundationModels/v1/completion"
             headers = {
                 "Authorization": f"Api-Key {api_key}",
                 "Content-Type": "application/json"
-            }
+            }  # <--- ВОТ ЭТОЙ СКОБКИ НЕ ХВАТАЛО!
 
-             prompt = f"""Ты — генеалогический помощник. Твоя задача — извлечь и оформить данные СТРОГО по этому шаблону. Если каких-то данных нет, пиши «неизвестно».
+            prompt = f"""Ты — генеалогический помощник. Твоя задача — извлечь и оформить данные СТРОГО по этому шаблону. Если каких-то данных нет, пиши «неизвестно».
 
 Шаблон ответа:
 ---
@@ -119,7 +119,8 @@ if submitted and question:
 {context_text}
 
 Вопрос пользователя: {question}
-Ответ:"""
+Ответ:
+"""
 
             payload = {
                 "modelUri": f"gpt://{folder_id}/yandexgpt-lite/latest",
@@ -130,7 +131,7 @@ if submitted and question:
             response = requests.post(url, headers=headers, json=payload, timeout=60)
             response.raise_for_status()
 
-            answer = response.json()['result']['alternatives'][0]['message']['text']
+            answer = response.json()['result']['alternatives']['message']['text']
             st.markdown("### Ответ:")
             st.write(answer)
 
