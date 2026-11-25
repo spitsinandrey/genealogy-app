@@ -18,7 +18,9 @@ def load_vectorstore():
 
 try:
     vectorstore = load_vectorstore()
-    st.success("База знаний загружена!")
+    # Считаем, сколько кусочков текста загружено в базу
+    count = vectorstore._collection.count()
+    st.success(f"База знаний загружена! Найдено фрагментов: {count}")
 except Exception as e:
     st.error(f"Ошибка загрузки базы: {e}")
     st.stop()
