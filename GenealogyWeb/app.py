@@ -4,8 +4,7 @@ import urllib3
 import os
 from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_community.document_loaders import TextLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_core.documents import Document
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -13,29 +12,31 @@ st.set_page_config(page_title="Генеалогический помощник",
 st.title("🌳 Чат с вашим древом")
 st.caption("Задайте вопрос. Я найду ответ в ваших файлах GEDCOM.")
 
-# Определяем папку, в которой лежит этот скрипт
 BASE_DIR = os.path.dirname(__file__)
 
 @st.cache_resource
 def load_vectorstore():
     embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
     
-    # Указываем полные пути к папке базы и текстовому файлу
     chroma_path = os.path.join(BASE_DIR, "chroma_db")
     txt_path = os.path.join(BASE_DIR, "my_family_knowledge.txt")
     
-    # 1. Пытаемся загрузить готовую базу
     vectorstore = Chroma(persist_directory=chroma_path, embedding_function=embeddings)
     
-    # 2. Если она пустая, собираем её из текстового файла
+    # Если база пустая, пересобираем её
     if vectorstore._collection.count() == 0:
-        st.info("Создаем базу знаний с нуля из файла my_family_knowledge.txt (это займет 1-2 минуты)...")
+        st.info("Пересоздаем базу знаний (разделяем людей по одному)...")
         if os.path.exists(txt_path):
-            loader = TextLoader(txt_path, encoding="utf-8")
-            documents = loader.load()
-            text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
-            chunks = text_splitter.split_documents(documents)
-            vectorstore = Chroma.from_documents(documents=chunks, embedding=embeddings, persist_directory=chroma_path)
+            with open(txt_path, "r", encoding="utf-8") as f:
+                content = f.read()
+            
+            # Разделяем файл по маркеру --- (один человек = один документ)
+            raw_people = content.split("---")
+            
+            # Очищаем пустые куски и создаем документы LangChain
+            docs = [Document(page_content=p.strip()) for p in raw_people if p.strip()]
+            
+            vectorstore = Chroma.from_documents(documents=docs, embedding=embeddings, persist_directory=chroma_path)
         else:
             st.error(f"Файл не найден по пути: {txt_path}")
             
@@ -45,7 +46,7 @@ try:
     vectorstore = load_vectorstore()
     count = vectorstore._collection.count()
     if count > 0:
-        st.success(f"База знаний загружена! Найдено фрагментов: {count}")
+        st.success(f"База знаний загружена! Найдено человек: {count}")
     else:
         st.stop()
 except Exception as e:
@@ -59,7 +60,8 @@ with st.form("my_form"):
 if submitted and question:
     with st.spinner("Ищу в дереве и думаю над ответом..."):
         try:
-            docs = vectorstore.similarity_search(question, k=5)
+            # Теперь ищем 3 самых близких человека
+            docs = vectorstore.similarity_search(question, k=3)
             context_text = "\n\n".join([d.page_content for d in docs])
 
             with st.expander("🛠️ Посмотреть, что нашла база (Контекст)"):
