@@ -67,9 +67,13 @@ if submitted and question:
             scored = []
             for doc in all_docs:
                 doc_lower = doc.lower()
+                first_line = doc_lower.splitlines()[0] if doc_lower else ""
                 score = sum(1 for w in words_to_find if w in doc_lower)
+                # Бонус, если слова из вопроса есть в самом имени человека
+                score += 2 * sum(1 for w in words_to_find if w in first_line)
                 if score > 0:
                     scored.append((score, doc))
+
 
             if scored:
                 # Сортируем: у кого больше совпадений — тот выше
