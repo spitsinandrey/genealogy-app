@@ -41,22 +41,18 @@ if submitted and question:
             # --- УМНЫЙ ПОИСК (лёгкий, без нейросети-эмбеддера) ---
             words_to_find = [w.lower().strip("?.,!«»\"'") for w in question.split() if len(w) > 3]
 
-            scored = 
+            scored = []
             for doc in people:
                 doc_lower = doc.lower()
-                # Безопасное получение первой строки
-                lines = doc_lower.splitlines()
-                first_line = lines if lines else ""
-                
+                first_line = doc_lower.splitlines()[0] if doc_lower else ""
                 score = sum(1 for w in words_to_find if w in doc_lower)
                 # Бонус, если слова из вопроса есть в самом имени человека
                 score += 2 * sum(1 for w in words_to_find if w in first_line)
-                
                 if score > 0:
                     scored.append((score, doc))
 
             if scored:
-                scored.sort(key=lambda x: x, reverse=True)
+                scored.sort(key=lambda x: x[0], reverse=True)
                 final_docs = [doc for s, doc in scored[:5]]
                 search_type = "Точный поиск по словам"
             else:
@@ -64,15 +60,15 @@ if submitted and question:
                 q = question.lower()
                 fuzzy = sorted(
                     people,
-                    key=lambda d: SequenceMatcher(None, q, (d.splitlines().lower() if d else "")).ratio(),
+                    key=lambda d: SequenceMatcher(None, q, (d.splitlines()[0].lower() if d else "")).ratio(),
                     reverse=True,
                 )[:5]
-                best_line = fuzzy.splitlines().lower() if fuzzy else ""
+                best_line = fuzzy[0].splitlines()[0].lower() if fuzzy else ""
                 if fuzzy and SequenceMatcher(None, q, best_line).ratio() > 0.45:
                     final_docs = fuzzy
                     search_type = "Поиск по похожести имени"
                 else:
-                    final_docs = 
+                    final_docs = []
                     search_type = "Ничего не найдено"
 
             if final_docs:
@@ -110,4 +106,9 @@ if submitted and question:
             response = requests.post(url, headers=headers, json=payload, timeout=60)
             response.raise_for_status()
 
-            data
+            answer = response.json()['result']['alternatives'][0]['message']['text']
+            st.markdown("### Ответ:")
+            st.write(answer)
+
+        except Exception as e:
+            st.error(f"Произошла ошибка: {e}")
