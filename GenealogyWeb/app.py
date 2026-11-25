@@ -42,8 +42,7 @@ if submitted and question:
             words_to_find = [w.lower().strip("?.,!«»\"'") for w in question.split() if len(w) > 3]
 
             # ИСПРАВЛЕНО: Корректная инициализация пустого списка
-            scored = 
-            
+            scored = []
             for doc in people:
                 doc_lower = doc.lower()
                 lines = doc_lower.splitlines()
