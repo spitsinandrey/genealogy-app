@@ -13,9 +13,9 @@ TXT_PATH = os.path.join(BASE_DIR, "my_family_knowledge.txt")
 
 @st.cache_data
 def load_people():
+    # Один человек = один документ (разделяем по маркеру ---)
     with open(TXT_PATH, "r", encoding="utf-8") as f:
         content = f.read()
-    # Разделяем по маркеру ---, убираем пустые строки
     return [p.strip() for p in content.split("---") if p.strip()]
 
 
@@ -38,63 +38,39 @@ with st.form("my_form"):
 if submitted and question:
     with st.spinner("Ищу в дереве и думаю над ответом..."):
         try:
-            # Подготовка слов для поиска
+            # --- УМНЫЙ ПОИСК (лёгкий, без нейросети-эмбеддера) ---
             words_to_find = [w.lower().strip("?.,!«»\"'") for w in question.split() if len(w) > 3]
 
-            # ИСПРАВЛЕНО: Корректная инициализация пустого списка
             scored = []
             for doc in people:
                 doc_lower = doc.lower()
-                lines = doc_lower.splitlines()
-                
-                # Первая строка документа — обычно там ФИО
-                first_line = lines if lines else ""
-                
-                # 1. Базовый счет совпадений слов во всем документе
+                first_line = doc_lower.splitlines()[0] if doc_lower else ""
                 score = sum(1 for w in words_to_find if w in doc_lower)
-                
-                # 2. Бонус +2 за каждое слово из вопроса в имени (первая строка)
+                # Бонус, если слова из вопроса есть в самом имени человека
                 score += 2 * sum(1 for w in words_to_find if w in first_line)
-                
-                # 3. Бонус +1 за каждое слово из вопроса в строках с местом
-                for line in lines:
-                    if "место:" in line or "место рождения:" in line or "место проживания:" in line:
-                        score += 1 * sum(1 for w in words_to_find if w in line)
-                
                 if score > 0:
                     scored.append((score, doc))
 
             if scored:
-                # Сортируем по убыванию счета (берем первый элемент кортежа)
-                scored.sort(key=lambda x: x, reverse=True)
+                scored.sort(key=lambda x: x[0], reverse=True)
                 final_docs = [doc for s, doc in scored[:5]]
                 search_type = "Точный поиск по словам"
             else:
                 # Резервный поиск: сравниваем вопрос с именами по похожести
                 q = question.lower()
-                
-                def get_name_for_fuzzy(d):
-                    lines = d.splitlines()
-                    return lines.lower() if lines else ""
-
                 fuzzy = sorted(
                     people,
-                    key=lambda d: SequenceMatcher(None, q, get_name_for_fuzzy(d)).ratio(),
+                    key=lambda d: SequenceMatcher(None, q, (d.splitlines()[0].lower() if d else "")).ratio(),
                     reverse=True,
                 )[:5]
-                
-                best_line = get_name_for_fuzzy(fuzzy) if fuzzy else ""
-                
-                # Проверяем порог схожести
+                best_line = fuzzy[0].splitlines()[0].lower() if fuzzy else ""
                 if fuzzy and SequenceMatcher(None, q, best_line).ratio() > 0.45:
                     final_docs = fuzzy
                     search_type = "Поиск по похожести имени"
                 else:
-                    # ИСПРАВЛЕНО: Присваиваем пустой список явно
                     final_docs = []
                     search_type = "Ничего не найдено"
 
-            # Блок вывода найденных документов
             if final_docs:
                 context_text = "\n\n".join(final_docs)
                 with st.expander(f"🛠️ Что нашла база ({search_type})"):
@@ -104,7 +80,6 @@ if submitted and question:
                 st.write("В данных нет этой информации.")
                 st.stop()
 
-            # --- Блок API (YandexGPT) ---
             folder_id = st.secrets["YANDEX_FOLDER_ID"]
             api_key = st.secrets["YANDEX_API_KEY"]
 
@@ -114,51 +89,26 @@ if submitted and question:
                 "Content-Type": "application/json"
             }
 
-            prompt = f"""Ты — генеалогический помощник. Твоя задача — извлечь и оформить данные СТРОГО по этому шаблону. Если каких-то данных нет, пиши «неизвестно».
-
-Шаблон ответа:
----
-ФИО: [Фамилия] [Имя] [Отчество] (если отчества нет — пиши только ФИО)
-Дата рождения: [день месяц год]
-Место рождения: [название населённого пункта]
-Родственные связи: [перечень связей с упоминанием имён и ролей]
----
-
-Используй ТОЛЬКО предоставленный ниже контекст. Не выдумывай данные. Если в контексте нет информации для заполнения поля — пиши «неизвестно». Не пиши лишних вступлений, начинай сразу с «ФИО».
+            prompt = f"""Ты — помощник по генеалогии. В тексте имена людей могут быть записаны с кавычками, скобками и запятыми — игнорируй их и воспринимай запись как обычное имя. Отвечай на вопрос пользователя, используя ТОЛЬКО предоставленный контекст. Если в контексте нет ответа, скажи 'В данных нет этой информации'.
 
 Контекст:
 {context_text}
 
-Вопрос пользователя: {question}
-Ответ:
-"""
+Вопрос: {question}
+Ответ:"""
 
             payload = {
                 "modelUri": f"gpt://{folder_id}/yandexgpt-lite/latest",
-                "completionOptions": {
-                    "stream": False,
-                    "temperature": 0.1,
-                    "maxTokens": 1000
-                },
-                "messages": [
-                    {"role": "user", "text": prompt}
-                ]
+                "completionOptions": {"stream": False, "temperature": 0.1, "maxTokens": 1000},
+                "messages": [{"role": "user", "text": prompt}]
             }
 
             response = requests.post(url, headers=headers, json=payload, timeout=60)
             response.raise_for_status()
 
-            data = response.json()
-            # ИСПРАВЛЕНО: Правильный доступ к тексту ответа (alternatives - это список)
-            answer = data['result']['alternatives']['message']['text']
-            
+            answer = response.json()['result']['alternatives'][0]['message']['text']
             st.markdown("### Ответ:")
             st.write(answer)
 
-        except requests.exceptions.RequestException as e:
-            st.error(f"Ошибка связи с API: {e}")
-        except KeyError as e:
-            st.error(f"Неожиданный формат ответа от API: {e}")
         except Exception as e:
-            st.error(f"Произошла непредвиденная ошибка: {e}")
-
+            st.error(f"Произошла ошибка: {e}")
