@@ -38,15 +38,16 @@ with st.form("my_form"):
 if submitted and question:
     with st.spinner("Ищу в дереве и думаю над ответом..."):
         try:
-                        # --- УМНЫЙ ПОИСК (лёгкий, без нейросети-эмбеддера) ---
+                                   # --- УМНЫЙ ПОИСК (лёгкий, без нейросети-эмбеддера) ---
             words_to_find = [w.lower().strip("?.,!«»\"'") for w in question.split() if len(w) > 3]
 
-            scored =  
+            scored =   # <--- ИСПРАВЛЕНО: обязательно инициализируем как пустой список
+            
             for doc in people:
                 doc_lower = doc.lower()
                 lines = doc_lower.splitlines()
                 
-                # ИСПРАВЛЕНО: берем именно первую строку (индекс 0), а не весь список
+                # ИСПРАВЛЕНО: берем именно первую строку (индекс 0)
                 first_line = lines if lines else ""
                 
                 # Считаем базовые совпадения слов из вопроса во всем тексте документа
@@ -62,6 +63,7 @@ if submitted and question:
                 
                 if score > 0:
                     scored.append((score, doc))
+
 
             if scored:
                 scored.sort(key=lambda x: x[0], reverse=True)
