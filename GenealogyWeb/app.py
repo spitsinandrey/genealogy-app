@@ -18,7 +18,7 @@ BASE_DIR = os.path.dirname(__file__)
 def load_vectorstore():
     embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
     
-    chroma_path = os.path.join(BASE_DIR, "chroma_db")
+    chroma_path = os.path.join(BASE_DIR, "chroma_db_v2")
     txt_path = os.path.join(BASE_DIR, "my_family_knowledge.txt")
     
     vectorstore = Chroma(persist_directory=chroma_path, embedding_function=embeddings)
