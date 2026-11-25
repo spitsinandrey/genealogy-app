@@ -41,15 +41,26 @@ if submitted and question:
             # --- УМНЫЙ ПОИСК (лёгкий, без нейросети-эмбеддера) ---
             words_to_find = [w.lower().strip("?.,!«»\"'") for w in question.split() if len(w) > 3]
 
-            scored = []
+                scored = 
             for doc in people:
                 doc_lower = doc.lower()
-                first_line = doc_lower.splitlines()[0] if doc_lower else ""
+                lines = doc_lower.splitlines()
+                first_line = lines if lines else ""
+                
+                # Считаем базовые совпадения слов из вопроса
                 score = sum(1 for w in words_to_find if w in doc_lower)
-                # Бонус, если слова из вопроса есть в самом имени человека
+                
+                # Бонус +2 за каждое слово из вопроса в имени (первая строка)
                 score += 2 * sum(1 for w in words_to_find if w in first_line)
+                
+                # Бонус +1 за каждое слово из вопроса в строках с местом
+                for line in lines:
+                    if "место:" in line or "место рождения:" in line or "место проживания:" in line:
+                        score += 1 * sum(1 for w in words_to_find if w in line)
+                
                 if score > 0:
                     scored.append((score, doc))
+
 
             if scored:
                 scored.sort(key=lambda x: x[0], reverse=True)
