@@ -48,6 +48,9 @@ if submitted and question:
             
 Контекст:
 {context_text}
+# Временный блок для отладки: показываем, что нашла база
+with st.expander("🛠️ Посмотреть, что нашла база (Контекст)"):
+    st.write(context_text)
 
 Вопрос: {question}
 Ответ:"""
