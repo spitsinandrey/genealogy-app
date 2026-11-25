@@ -13,7 +13,6 @@ TXT_PATH = os.path.join(BASE_DIR, "my_family_knowledge.txt")
 
 @st.cache_data
 def load_people():
-    # Один человек = один документ (разделяем по маркеру ---)
     with open(TXT_PATH, "r", encoding="utf-8") as f:
         content = f.read()
     return [p.strip() for p in content.split("---") if p.strip()]
@@ -38,26 +37,25 @@ with st.form("my_form"):
 if submitted and question:
     with st.spinner("Ищу в дереве и думаю над ответом..."):
         try:
-            # --- УМНЫЙ ПОИСК ---
             words_to_find = [w.lower().strip("?.,!«»\"'") for w in question.split() if len(w) > 3]
 
-            # ИСПРАВЛЕНО: явная инициализация пустого списка
+            # Инициализируем пустой список для результатов
             scored = 
             
             for doc in people:
                 doc_lower = doc.lower()
                 lines = doc_lower.splitlines()
                 
-                # Первая строка документа — обычно там ФИО
+                # Берем первую строку как имя (если она есть)
                 first_line = lines if lines else ""
                 
-                # Считаем базовые совпадения слов из вопроса во всем тексте документа
+                # Базовый счет совпадений слов во всем документе
                 score = sum(1 for w in words_to_find if w in doc_lower)
                 
-                # Бонус +2 за каждое слово из вопроса в имени (первая строка)
+                # Бонус за совпадение в имени (первой строке)
                 score += 2 * sum(1 for w in words_to_find if w in first_line)
                 
-                # Бонус +1 за каждое слово из вопроса в строках с местом
+                # Бонус за совпадение в строках с местом
                 for line in lines:
                     if "место:" in line or "место рождения:" in line or "место проживания:" in line:
                         score += 1 * sum(1 for w in words_to_find if w in line)
@@ -66,12 +64,12 @@ if submitted and question:
                     scored.append((score, doc))
 
             if scored:
-                # Сортируем по убыванию score (берем первый элемент кортежа)
+                # Сортируем по убыванию счета (берем первый элемент кортежа)
                 scored.sort(key=lambda x: x, reverse=True)
                 final_docs = [doc for s, doc in scored[:5]]
                 search_type = "Точный поиск по словам"
             else:
-                # Резервный поиск: сравниваем вопрос с именами по похожести
+                # Резервный поиск по похожести имени
                 q = question.lower()
                 
                 def get_name_for_fuzzy(d):
@@ -89,11 +87,9 @@ if submitted and question:
                     final_docs = fuzzy
                     search_type = "Поиск по похожести имени"
                 else:
-                    # ИСПРАВЛЕНО: присваиваем пустой список, а не оставляем пустым
                     final_docs = 
                     search_type = "Ничего не найдено"
 
-            # Блок вывода найденных документов
             if final_docs:
                 context_text = "\n\n".join(final_docs)
                 with st.expander(f"🛠️ Что нашла база ({search_type})"):
@@ -103,7 +99,7 @@ if submitted and question:
                 st.write("В данных нет этой информации.")
                 st.stop()
 
-            # --- НАЧАЛО БЛОКА API (правильные отступы) ---
+            # --- Блок API ---
             folder_id = st.secrets["YANDEX_FOLDER_ID"]
             api_key = st.secrets["YANDEX_API_KEY"]
 
@@ -120,10 +116,10 @@ if submitted and question:
 ФИО: [Фамилия] [Имя] [Отчество] (если отчества нет — пиши только ФИО)
 Дата рождения: [день месяц год]
 Место рождения: [название населённого пункта]
-Родственные связи: [перечень связей с упоминанием имён и ролей, например: «супруг Марии Андреевны Спициной», «сын Евгения Николаевича Спицина»]
+Родственные связи: [перечень связей с упоминанием имён и ролей]
 ---
 
-Используй ТОЛЬКО предоставленный ниже контекст. Не выдумывай даты и места. Если в контексте нет информации для заполнения поля — пиши «неизвестно». Не пиши лишних вступлений («Конечно», «Вот данные» и т.п.), начинай сразу с «ФИО».
+Используй ТОЛЬКО предоставленный ниже контекст. Не выдумывай данные. Если в контексте нет информации для заполнения поля — пиши «неизвестно». Не пиши лишних вступлений, начинай сразу с «ФИО».
 
 Контекст:
 {context_text}
@@ -148,7 +144,7 @@ if submitted and question:
             response.raise_for_status()
 
             data = response.json()
-            # ИСПРАВЛЕНО: alternatives — это список, берем первый элемент
+            # Получаем текст ответа из первого варианта
             answer = data['result']['alternatives']['message']['text']
             
             st.markdown("### Ответ:")
