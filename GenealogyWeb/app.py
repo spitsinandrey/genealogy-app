@@ -41,7 +41,7 @@ if submitted and question:
                                    # --- УМНЫЙ ПОИСК (лёгкий, без нейросети-эмбеддера) ---
             words_to_find = [w.lower().strip("?.,!«»\"'") for w in question.split() if len(w) > 3]
 
-            scored =   # <--- ИСПРАВЛЕНО: обязательно инициализируем как пустой список
+            scored = [] # <--- ИСПРАВЛЕНО: обязательно инициализируем как пустой список
             
             for doc in people:
                 doc_lower = doc.lower()
