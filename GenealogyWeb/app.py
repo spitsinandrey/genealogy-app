@@ -41,7 +41,8 @@ if submitted and question:
             # --- УМНЫЙ ПОИСК ---
             words_to_find = [w.lower().strip("?.,!«»\"'") for w in question.split() if len(w) > 3]
 
-            scored =   # <--- ИСПРАВЛЕНО: теперь список корректно инициализирован
+            # ИСПРАВЛЕНО: явная инициализация пустого списка
+            scored = 
             
             for doc in people:
                 doc_lower = doc.lower()
@@ -65,7 +66,7 @@ if submitted and question:
                     scored.append((score, doc))
 
             if scored:
-                # Сортируем по убыванию score
+                # Сортируем по убыванию score (берем первый элемент кортежа)
                 scored.sort(key=lambda x: x, reverse=True)
                 final_docs = [doc for s, doc in scored[:5]]
                 search_type = "Точный поиск по словам"
@@ -88,6 +89,7 @@ if submitted and question:
                     final_docs = fuzzy
                     search_type = "Поиск по похожести имени"
                 else:
+                    # ИСПРАВЛЕНО: присваиваем пустой список, а не оставляем пустым
                     final_docs = 
                     search_type = "Ничего не найдено"
 
