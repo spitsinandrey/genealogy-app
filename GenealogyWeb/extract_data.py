@@ -31,8 +31,12 @@ try:
     
     with open(output_file, 'w', encoding='utf-8') as f:
         for person in individuals:
-            name_tuple = person.get_name()
-            name_str = " ".join([str(i) for i in name_tuple if i])
+                      name_tuple = person.get_name()
+            # Очищаем имя от кавычек и скобок
+            if isinstance(name_tuple, tuple):
+                name_str = " ".join([str(i).replace("'", "").replace('"', '') for i in name_tuple if i])
+            else:
+                name_str = str(name_tuple).replace("'", "").replace('"', '')
             
             b_date, b_place = get_event_info(person, 'BIRT')
             d_date, d_place = get_event_info(person, 'DEAT')
