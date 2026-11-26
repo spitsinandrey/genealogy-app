@@ -1,35 +1,19 @@
 import streamlit as st
 import requests
 import os
-from difflib import SequenceMatcher
 from gedcom.parser import Parser
 from gedcom.element.individual import IndividualElement
 
-# --- НАСТРОЙКА ДИЗАЙНА (Пастельные тона) ---
+# --- НАСТРОЙКА ДИЗАЙНА ---
 st.set_page_config(page_title="Генеалогический помощник", page_icon="🌳", layout="wide")
 
-# Добавляем немного CSS для мягкого фона и скруглений
 st.markdown("""
     <style>
-    .stApp {
-        background-color: #fcfcfc; /* Очень светлый, почти белый фон */
-    }
-    h1, h2, h3 {
-        color: #5a6e7f; /* Спокойный серо-голубой для заголовков */
-    }
-    .stButton>button {
-        background-color: #e6f0fa; /* Пастельно-голубая кнопка */
-        color: #4a5d6e;
-        border-radius: 8px;
-        border: 1px solid #c2d6e6;
-    }
-    .stButton>button:hover {
-        background-color: #d0e3f5;
-    }
-    .stTextInput>div>div>input {
-        border-radius: 8px;
-        border: 1px solid #dcdcdc;
-    }
+    .stApp { background-color: #fcfcfc; }
+    h1, h2, h3 { color: #5a6e7f; }
+    .stButton>button { background-color: #e6f0fa; color: #4a5d6e; border-radius: 8px; border: 1px solid #c2d6e6; }
+    .stButton>button:hover { background-color: #d0e3f5; }
+    .stTextInput>div>div>input { border-radius: 8px; border: 1px solid #dcdcdc; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -82,8 +66,12 @@ def ask_ai(question, people):
     for doc in people:
         doc_lower = doc.lower()
         first_line = doc_lower.splitlines()[0] if doc_lower else ""
+        
+        # Считаем совпадения
         score = sum(1 for w in words_to_find if w in doc_lower)
-        score += 2 * sum(1 for w in words_to_find if w in first_line)
+        # Даем большой бонус (х3), если слово из вопроса есть в самом имени (первой строке)
+        score += 3 * sum(1 for w in words_to_find if w in first_line)
+        
         if score > 0:
             scored.append((score, doc))
 
@@ -94,7 +82,7 @@ def ask_ai(question, people):
         final_docs = []
 
     if not final_docs:
-        return "В данных нет этой информации.", ""
+        return "В данных нет этой информации.", "Поиск не дал результатов."
 
     context_text = "\n\n".join(final_docs)
     
@@ -124,27 +112,25 @@ def ask_ai(question, people):
     except Exception as e:
         return f"Ошибка API: {e}", context_text
 
-# --- СОЗДАНИЕ ВКЛАДОК ---
-# Мы создаем две фиксированные вкладки для деревьев. 
-# (Позже можно добавить динамическое добавление, но для начала двух хватит).
-tab1, tab2 = st.tabs(["🌳 Дерево 1 (Спицины)", "🌳 Дерево 2"])
+# --- ЛОГИКА ВКЛАДОК ---
+tab1, tab2 = st.tabs(["🌳 Дерево 1", "🌳 Дерево 2"])
 
-# --- ЛОГИКА ДЛЯ ПЕРВОГО ДЕРЕВА ---
 with tab1:
-    st.subheader("Работа с древом Спициных")
-    uploaded_file_1 = st.file_uploader("Загрузите GEDCOM файл для этого дерева", type=["ged"], key="upload_1")
+    uploaded_file_1 = st.file_uploader("Загрузите GEDCOM файл (.ged)", type=["ged"], key="upload_1")
     
-    # Если файл загружен, сохраняем его в память сессии
     if uploaded_file_1 is not None:
         if "people_1" not in st.session_state:
             with st.spinner("Обрабатываю файл..."):
                 st.session_state.people_1 = parse_gedcom(uploaded_file_1)
         st.success(f"Дерево загружено! Найдено человек: {len(st.session_state.people_1)}")
     
-    # Если данные уже есть в памяти, показываем чат
     if "people_1" in st.session_state:
-        question_1 = st.text_input("Ваш вопрос по этому древу:", key="q_1", placeholder="Например: Кто такой Андрей Спицин?")
-        if st.button("Спросить", key="btn_1") and question_1:
+        # Используем форму, чтобы избежать перезагрузки страницы
+        with st.form(key='form_1'):
+            question_1 = st.text_input("Ваш вопрос:", placeholder="Например: Кто такой Андрей Спицин?")
+            submit_1 = st.form_submit_button("Спросить")
+            
+        if submit_1 and question_1:
             with st.spinner("Думаю..."):
                 answer, context = ask_ai(question_1, st.session_state.people_1)
                 st.markdown("### Ответ:")
@@ -153,10 +139,8 @@ with tab1:
                     with st.expander("🛠️ Что нашла база"):
                         st.write(context)
 
-# --- ЛОГИКА ДЛЯ ВТОРОГО ДЕРЕВА ---
 with tab2:
-    st.subheader("Работа со вторым древом")
-    uploaded_file_2 = st.file_uploader("Загрузите GEDCOM файл для второго дерева", type=["ged"], key="upload_2")
+    uploaded_file_2 = st.file_uploader("Загрузите GEDCOM файл (.ged)", type=["ged"], key="upload_2")
     
     if uploaded_file_2 is not None:
         if "people_2" not in st.session_state:
@@ -165,8 +149,11 @@ with tab2:
         st.success(f"Дерево загружено! Найдено человек: {len(st.session_state.people_2)}")
     
     if "people_2" in st.session_state:
-        question_2 = st.text_input("Ваш вопрос по этому древу:", key="q_2", placeholder="Введите вопрос...")
-        if st.button("Спросить", key="btn_2") and question_2:
+        with st.form(key='form_2'):
+            question_2 = st.text_input("Ваш вопрос:", placeholder="Введите вопрос...")
+            submit_2 = st.form_submit_button("Спросить")
+            
+        if submit_2 and question_2:
             with st.spinner("Думаю..."):
                 answer, context = ask_ai(question_2, st.session_state.people_2)
                 st.markdown("### Ответ:")
