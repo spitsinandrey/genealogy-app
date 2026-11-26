@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import os
 import re
+import urllib.parse
 from gedcom.parser import Parser
 from gedcom.element.individual import IndividualElement
 
@@ -17,7 +18,6 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 st.title("🌳 Генеалогический ассистент")
-st.caption("Выберите дерево для работы или загрузите новое.")
 
 # --- СЛОВАРЬ МЕСЯЦЕВ ---
 MONTHS_RU = {
@@ -29,21 +29,13 @@ MONTHS_RU = {
 def translate_date(date_str):
     if not date_str or date_str.lower() == "неизвестно":
         return "неизвестно"
-    
-    # Убираем мусор типа @#DJULIAN@
     cleaned = re.sub(r'@#.*?@', '', date_str).strip()
-    
-    # Ищем английские сокращения месяцев и заменяем на русские
     for eng, rus in MONTHS_RU.items():
         if eng in cleaned.upper():
-            # Заменяем только первое вхождение (чтобы не сломать год)
             cleaned = re.sub(eng, rus, cleaned, flags=re.IGNORECASE)
             break
-            
-    # Добавляем "г." если есть год (4 цифры подряд), но нет слова "г."
     if re.search(r'\d{4}', cleaned) and 'г.' not in cleaned:
         cleaned += ' г.'
-        
     return cleaned.strip()
 
 # --- ПАРСИНГ ---
@@ -88,7 +80,6 @@ def smart_search(question, people):
     for doc in people:
         doc_lower = doc.lower()
         first_line = doc_lower.splitlines()[0] if doc_lower else ""
-        
         score = 0
         for w in words:
             if w in doc_lower: score += 1
@@ -111,6 +102,14 @@ def smart_search(question, people):
         scored.sort(key=lambda x: x[0], reverse=True)
         return [doc for s, doc in scored[:5]]
     return []
+
+# --- ФУНКЦИЯ ОЧИСТКИ ЗАПРОСА ДЛЯ ССЫЛОК ---
+def get_search_query(question):
+    # Убираем служебные слова, чтобы оставить только имя и фамилию для поиска в архивах
+    stop_words = r'\b(кто|такой|такая|такое|родился|родилась|умер|умерла|в|на|году|года|расскажи|про|найди|когда|где)\b'
+    clean_q = re.sub(stop_words, '', question, flags=re.IGNORECASE)
+    clean_q = re.sub(r'[^\w\s]', '', clean_q).strip()
+    return clean_q
 
 # --- YANDEX GPT ---
 def ask_ai(question, people):
@@ -161,11 +160,28 @@ with tab1:
         with st.form(key='form_1'):
             question_1 = st.text_input("Ваш вопрос:", placeholder="Например: Кто родился в Кемерово?")
             submit_1 = st.form_submit_button("Спросить")
+        
         if submit_1 and question_1:
             with st.spinner("Думаю..."):
                 answer, context = ask_ai(question_1, st.session_state.people_1)
                 st.markdown("### Ответ:")
                 st.write(answer)
+                
+                # --- БЛОК ССЫЛОК НА АРХИВЫ ---
+                st.markdown("---")
+                st.markdown("**🔍 Поискать в открытых источниках:**")
+                
+                search_query = get_search_query(question_1)
+                encoded_query = urllib.parse.quote(search_query)
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.link_button("🇷🇺 Память Народа", f"https://pamyat-naroda.ru/heroes/?last_name={encoded_query}")
+                with col2:
+                    st.link_button("🌍 FamilySearch", f"https://www.familysearch.org/search/record/results?q.surname={encoded_query}")
+                with col3:
+                    st.link_button("📜 Архивы Яндекса", f"https://ya.ru/archive/search?text={encoded_query}")
+                
                 if context:
                     with st.expander("🛠️ Что нашла база"):
                         st.write(context)
@@ -182,12 +198,27 @@ with tab2:
         with st.form(key='form_2'):
             question_2 = st.text_input("Ваш вопрос:", placeholder="Например: Кто родился в Кемерово?")
             submit_2 = st.form_submit_button("Спросить")
+        
         if submit_2 and question_2:
             with st.spinner("Думаю..."):
                 answer, context = ask_ai(question_2, st.session_state.people_2)
                 st.markdown("### Ответ:")
                 st.write(answer)
+                
+                st.markdown("---")
+                st.markdown("**🔍 Поискать в открытых источниках:**")
+                
+                search_query = get_search_query(question_2)
+                encoded_query = urllib.parse.quote(search_query)
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.link_button("🇷🇺 Память Народа", f"https://pamyat-naroda.ru/heroes/?last_name={encoded_query}")
+                with col2:
+                    st.link_button("🌍 FamilySearch", f"https://www.familysearch.org/search/record/results?q.surname={encoded_query}")
+                with col3:
+                    st.link_button("📜 Архивы Яндекса", f"https://ya.ru/archive/search?text={encoded_query}")
+                
                 if context:
                     with st.expander("🛠️ Что нашла база"):
                         st.write(context)
-                    
