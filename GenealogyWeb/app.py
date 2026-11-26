@@ -103,13 +103,25 @@ def smart_search(question, people):
         return [doc for s, doc in scored[:5]]
     return []
 
-# --- ФУНКЦИЯ ОЧИСТКИ ЗАПРОСА ДЛЯ ССЫЛОК ---
-def get_search_query(question):
-    # Убираем служебные слова, чтобы оставить только имя и фамилию для поиска в архивах
-    stop_words = r'\b(кто|такой|такая|такое|родился|родилась|умер|умерла|в|на|году|года|расскажи|про|найди|когда|где)\b'
-    clean_q = re.sub(stop_words, '', question, flags=re.IGNORECASE)
-    clean_q = re.sub(r'[^\w\s]', '', clean_q).strip()
-    return clean_q
+# --- ИЗВЛЕЧЕНИЕ ДАННЫХ ДЛЯ ПОИСКА ---
+def extract_search_data(context_text):
+    # Берем первую строку (самый релевантный человек)
+    first_line = context_text.split("\n")[0]
+    
+    # Ищем имя (между "Человек: " и ". Рождение:")
+    name_match = re.search(r'Человек:\s*(.*?)\.', first_line)
+    name = name_match.group(1).strip() if name_match else ""
+    
+    # Ищем год рождения (4 цифры после "Рождение:")
+    birth_match = re.search(r'Рождение:\s*.*?(\d{4})', first_line)
+    birth_year = birth_match.group(1) if birth_match else ""
+    
+    # Ищем место рождения (между "Место: " и ". Смерть:")
+    place_match = re.search(r'Рождение:.*?Место:\s*(.*?)\.', first_line)
+    place = place_match.group(1).strip() if place_match else ""
+    if place == "неизвестно": place = ""
+    
+    return name, birth_year, place
 
 # --- YANDEX GPT ---
 def ask_ai(question, people):
@@ -158,7 +170,7 @@ with tab1:
     
     if "people_1" in st.session_state:
         with st.form(key='form_1'):
-            question_1 = st.text_input("Ваш вопрос:", placeholder="Например: Кто родился в Кемерово?")
+            question_1 = st.text_input("Ваш вопрос:", placeholder="Например: Кто такой Андрей Спицин?")
             submit_1 = st.form_submit_button("Спросить")
         
         if submit_1 and question_1:
@@ -167,26 +179,42 @@ with tab1:
                 st.markdown("### Ответ:")
                 st.write(answer)
                 
-                # --- БЛОК ССЫЛОК НА АРХИВЫ ---
-                st.markdown("---")
-                st.markdown("**🔍 Поискать в открытых источниках:**")
-                
-                search_query = get_search_query(question_1)
-                encoded_query = urllib.parse.quote(search_query)
-                
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.link_button("🇷🇺 Память Народа", f"https://pamyat-naroda.ru/heroes/?last_name={encoded_query}")
-                with col2:
-                    st.link_button("🌍 FamilySearch", f"https://www.familysearch.org/search/record/results?q.surname={encoded_query}")
-                with col3:
-                    st.link_button("📜 Архивы Яндекса", f"https://ya.ru/archive/search?text={encoded_query}")
-                
                 if context:
+                    st.markdown("---")
+                    st.markdown("**🔍 Поискать в открытых источниках:**")
+                    
+                    # Извлекаем данные о человеке из найденного контекста
+                    p_name, p_year, p_place = extract_search_data(context)
+                    
+                    if p_name:
+                        # Для Памяти Народа нужны отдельные поля
+                        pn_lastname = p_name.split()[-1] if p_name else "" # Берем последнее слово как фамилию
+                        pn_firstname = p_name.split()[0] if p_name else ""
+                        
+                        url_pn = f"https://pamyat-naroda.ru/heroes/?last_name={urllib.parse.quote(pn_lastname)}&first_name={urllib.parse.quote(pn_firstname)}&date_birth={p_year}&place_birth={urllib.parse.quote(p_place)}"
+                        
+                        # Для Яндекса и FamilySearch нужна общая строка
+                        full_query = f"{p_name} {p_year} {p_place}".strip()
+                        url_ya = f"https://ya.ru/archive/search?text={urllib.parse.quote(full_query)}"
+                        url_fs = f"https://www.familysearch.org/search/record/results?q.givenName={urllib.parse.quote(pn_firstname)}&q.surname={urllib.parse.quote(pn_lastname)}&q.birthLikeDate.from={p_year}&q.birthLikePlace={urllib.parse.quote(p_place)}"
+                        
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.link_button("🇷🇺 Память Народа", url_pn)
+                        with col2:
+                            st.link_button("🌍 FamilySearch", url_fs)
+                        with col3:
+                            st.link_button("📜 Архивы Яндекса", url_ya)
+                        
+                        st.caption(f"Поиск по данным: **{full_query}**")
+                    else:
+                        st.warning("Не удалось автоматически извлечь данные для поиска из ответа.")
+                
                     with st.expander("🛠️ Что нашла база"):
                         st.write(context)
 
 with tab2:
+    # Аналогичный код для второй вкладки
     uploaded_file_2 = st.file_uploader("Загрузите GEDCOM файл (.ged)", type=["ged"], key="upload_2")
     if uploaded_file_2 is not None:
         if "people_2" not in st.session_state:
@@ -196,7 +224,7 @@ with tab2:
     
     if "people_2" in st.session_state:
         with st.form(key='form_2'):
-            question_2 = st.text_input("Ваш вопрос:", placeholder="Например: Кто родился в Кемерово?")
+            question_2 = st.text_input("Ваш вопрос:", placeholder="Например: Кто такой Андрей Спицин?")
             submit_2 = st.form_submit_button("Спросить")
         
         if submit_2 and question_2:
@@ -205,20 +233,32 @@ with tab2:
                 st.markdown("### Ответ:")
                 st.write(answer)
                 
-                st.markdown("---")
-                st.markdown("**🔍 Поискать в открытых источниках:**")
-                
-                search_query = get_search_query(question_2)
-                encoded_query = urllib.parse.quote(search_query)
-                
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.link_button("🇷🇺 Память Народа", f"https://pamyat-naroda.ru/heroes/?last_name={encoded_query}")
-                with col2:
-                    st.link_button("🌍 FamilySearch", f"https://www.familysearch.org/search/record/results?q.surname={encoded_query}")
-                with col3:
-                    st.link_button("📜 Архивы Яндекса", f"https://ya.ru/archive/search?text={encoded_query}")
-                
                 if context:
+                    st.markdown("---")
+                    st.markdown("**🔍 Поискать в открытых источниках:**")
+                    
+                    p_name, p_year, p_place = extract_search_data(context)
+                    
+                    if p_name:
+                        pn_lastname = p_name.split()[-1] if p_name else ""
+                        pn_firstname = p_name.split()[0] if p_name else ""
+                        
+                        url_pn = f"https://pamyat-naroda.ru/heroes/?last_name={urllib.parse.quote(pn_lastname)}&first_name={urllib.parse.quote(pn_firstname)}&date_birth={p_year}&place_birth={urllib.parse.quote(p_place)}"
+                        full_query = f"{p_name} {p_year} {p_place}".strip()
+                        url_ya = f"https://ya.ru/archive/search?text={urllib.parse.quote(full_query)}"
+                        url_fs = f"https://www.familysearch.org/search/record/results?q.givenName={urllib.parse.quote(pn_firstname)}&q.surname={urllib.parse.quote(pn_lastname)}&q.birthLikeDate.from={p_year}&q.birthLikePlace={urllib.parse.quote(p_place)}"
+                        
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.link_button("🇷🇺 Память Народа", url_pn)
+                        with col2:
+                            st.link_button("🌍 FamilySearch", url_fs)
+                        with col3:
+                            st.link_button("📜 Архивы Яндекса", url_ya)
+                        
+                        st.caption(f"Поиск по данным: **{full_query}**")
+                    else:
+                        st.warning("Не удалось автоматически извлечь данные для поиска из ответа.")
+                
                     with st.expander("🛠️ Что нашла база"):
                         st.write(context)
