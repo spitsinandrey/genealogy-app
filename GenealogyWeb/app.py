@@ -124,7 +124,7 @@ TOOLS = [
         "type": "function",
         "function": {
             "name": "search_tree",
-            "description": "Поиск по загруженному семейному древу пользователя. Возвращает карточки людей: ФИО, даты и места рождения/смерти.",
+            "description": "Поиск по загруженному семейному древу пользователя (GEDCOM). Возвращает карточки людей: ФИО, даты и места рождения/смерти.",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -168,7 +168,6 @@ def run_tool(name, args, people):
         if not url.startswith("http"):
             return "Ошибка: URL должен начинаться с http:// или https://"
         try:
-            # r.jina.ai превращает страницу (включая JS-тяжёлые сайты) в читаемый текст
             r = requests.get("https://r.jina.ai/" + url, timeout=40,
                              headers={"User-Agent": "Mozilla/5.0"})
             if r.status_code == 200 and r.text.strip():
@@ -189,8 +188,12 @@ def run_agent(question, people):
     folder_id = st.secrets["YANDEX_FOLDER_ID"]
     api_key = st.secrets["YANDEX_API_KEY"]
 
-    url = "https://llm.api.cloud.yandex.net/foundationModels/v1/chat/completions"
-    headers = {"Authorization": f"Api-Key {api_key}", "Content-Type": "application/json"}
+    url = "https://llm.api.cloud.yandex.net/v1/chat/completions"
+    headers = {
+        "Authorization": f"Api-Key {api_key}",
+        "Content-Type": "application/json",
+        "OpenAI-Project": folder_id,
+    }
 
     messages = [
         {"role": "system", "content": SYSTEM_PROMPT},
@@ -201,10 +204,12 @@ def run_agent(question, people):
 
     for step in range(5):
         payload = {
-            "modelUri": f"gpt://{folder_id}/yandexgpt/latest",
+            "model": f"gpt://{folder_id}/yandexgpt/latest",
             "messages": messages,
             "tools": TOOLS,
-            "completionOptions": {"temperature": 0.2, "maxTokens": 2000}
+            "temperature": 0.2,
+            "max_tokens": 2000,
+            "stream": False,
         }
 
         resp = requests.post(url, headers=headers, json=payload, timeout=120)
