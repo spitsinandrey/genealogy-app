@@ -19,6 +19,33 @@ st.markdown("""
 st.title("🌳 Генеалогический ассистент")
 st.caption("Выберите дерево для работы или загрузите новое.")
 
+# --- СЛОВАРЬ МЕСЯЦЕВ ---
+MONTHS_RU = {
+    'JAN': 'января', 'FEB': 'февраля', 'MAR': 'марта', 'APR': 'апреля',
+    'MAY': 'мая', 'JUN': 'июня', 'JUL': 'июля', 'AUG': 'августа',
+    'SEP': 'сентября', 'OCT': 'октября', 'NOV': 'ноября', 'DEC': 'декабря'
+}
+
+def translate_date(date_str):
+    if not date_str or date_str.lower() == "неизвестно":
+        return "неизвестно"
+    
+    # Убираем мусор типа @#DJULIAN@
+    cleaned = re.sub(r'@#.*?@', '', date_str).strip()
+    
+    # Ищем английские сокращения месяцев и заменяем на русские
+    for eng, rus in MONTHS_RU.items():
+        if eng in cleaned.upper():
+            # Заменяем только первое вхождение (чтобы не сломать год)
+            cleaned = re.sub(eng, rus, cleaned, flags=re.IGNORECASE)
+            break
+            
+    # Добавляем "г." если есть год (4 цифры подряд), но нет слова "г."
+    if re.search(r'\d{4}', cleaned) and 'г.' not in cleaned:
+        cleaned += ' г.'
+        
+    return cleaned.strip()
+
 # --- ПАРСИНГ ---
 def parse_gedcom(uploaded_file):
     temp_path = f"temp_{uploaded_file.name}"
@@ -39,11 +66,11 @@ def parse_gedcom(uploaded_file):
         for child in person.get_child_elements():
             if child.get_tag() == 'BIRT':
                 for sub in child.get_child_elements():
-                    if sub.get_tag() == 'DATE': b_date = sub.get_value()
+                    if sub.get_tag() == 'DATE': b_date = translate_date(sub.get_value())
                     if sub.get_tag() == 'PLAC': b_place = sub.get_value()
             if child.get_tag() == 'DEAT':
                 for sub in child.get_child_elements():
-                    if sub.get_tag() == 'DATE': d_date = sub.get_value()
+                    if sub.get_tag() == 'DATE': d_date = translate_date(sub.get_value())
                     if sub.get_tag() == 'PLAC': d_place = sub.get_value()
         
         text = f"Человек: {name_str}. Рождение: {b_date}, Место: {b_place}. Смерть: {d_date}, Место: {d_place}."
@@ -63,19 +90,15 @@ def smart_search(question, people):
         first_line = doc_lower.splitlines()[0] if doc_lower else ""
         
         score = 0
-        # 1. Базовый поиск по всем словам
         for w in words:
             if w in doc_lower: score += 1
-            if w in first_line: score += 3 # Бонус за совпадение в имени
+            if w in first_line: score += 3
             
-        # 2. СПЕЦИАЛЬНЫЙ ПОИСК ПО МЕСТАМ
-        # Если в вопросе есть слово "родил", ищем в блоке "Рождение"
         if "родил" in q_lower or "место рождения" in q_lower:
             birth_block = doc_lower.split("рождение:")[1].split("смерть:")[0] if "рождение:" in doc_lower else ""
             for w in words:
-                if w in birth_block: score += 5 # Большой бонус за правильное место рождения
+                if w in birth_block: score += 5
                 
-        # Если в вопросе есть слово "умер" или "смерт", ищем в блоке "Смерть"
         if "умер" in q_lower or "смерт" in q_lower:
             death_block = doc_lower.split("смерть:")[1] if "смерть:" in doc_lower else ""
             for w in words:
@@ -167,3 +190,4 @@ with tab2:
                 if context:
                     with st.expander("🛠️ Что нашла база"):
                         st.write(context)
+                    
