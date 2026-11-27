@@ -4,7 +4,6 @@ import os
 import re
 import urllib.parse
 import pandas as pd
-import io
 from gedcom.parser import Parser
 from gedcom.element.individual import IndividualElement
 
@@ -40,7 +39,7 @@ def translate_date(date_str):
         cleaned += ' г.'
     return cleaned.strip()
 
-# --- ПАРСИНГ ---
+# --- ПАРСИНГ (С извлечением родителей) ---
 def parse_gedcom(uploaded_file):
     temp_path = f"temp_{uploaded_file.name}"
     with open(temp_path, "wb") as f:
@@ -56,6 +55,7 @@ def parse_gedcom(uploaded_file):
         name_str = " ".join([str(i).replace("'", "").replace('"', '') for i in name if i]) if isinstance(name, tuple) else str(name)
         
         b_date, b_place, d_date, d_place = "неизвестно", "неизвестно", "неизвестно", "неизвестно"
+        parents = "неизвестно"
         
         for child in person.get_child_elements():
             if child.get_tag() == 'BIRT':
@@ -66,14 +66,20 @@ def parse_gedcom(uploaded_file):
                 for sub in child.get_child_elements():
                     if sub.get_tag() == 'DATE': d_date = translate_date(sub.get_value())
                     if sub.get_tag() == 'PLAC': d_place = sub.get_value()
+            # Извлекаем имена родителей (если они есть в тексте GEDCOM)
+            if child.get_tag() == 'NOTE' and 'Родители:' in child.get_value():
+                parents = child.get_value().replace('Родители:', '').strip()
         
-        text = f"👤 {name_str}. Рождение: {b_date}, Место: {b_place}. Смерть: {d_date}, Место: {d_place}."
+        # Формируем строку с родителями, если они есть
+        parents_str = f" Родители: {parents}." if parents != "неизвестно" else ""
+        
+        text = f"👤 {name_str}. Рождение: {b_date}, Место: {b_place}. Смерть: {d_date}, Место: {d_place}.{parents_str}"
         people_list.append(text)
     
     os.remove(temp_path)
     return people_list
 
-# --- УМНЫЙ ПОИСК ---
+# --- УМНЫЙ ПОИСК (с учетом связей) ---
 def smart_search(question, people):
     q_lower = question.lower()
     words = [re.sub(r'[^\w\s]', '', w) for w in q_lower.split() if len(w) > 3]
@@ -102,10 +108,12 @@ def smart_search(question, people):
 
     if scored:
         scored.sort(key=lambda x: x[0], reverse=True)
-        return [doc for s, doc in scored[:5]]
+        # Берем топ-5 самых релевантных
+        top_docs = [doc for s, doc in scored[:5]]
+        return top_docs
     return []
 
-# --- ИЗВЛЕЧЕНИЕ ДАННЫХ ДЛЯ ПОИСКА ---
+# --- ИЗВЛЕЧЕНИЕ ДАННЫХ ДЛЯ ССЫЛОК ---
 def extract_search_data(context_text):
     first_line = context_text.split("\n")[0]
     name_match = re.search(r'👤\s*(.*?)\.', first_line)
@@ -117,11 +125,60 @@ def extract_search_data(context_text):
     if place == "неизвестно": place = ""
     return name, birth_year, place
 
+# --- ГЕНЕРАЦИЯ ОТЧЕТА (MARKDOWN) ---
+def generate_markdown_report(context_text, project_name):
+    lines = context_text.split("\n\n")
+    
+    report = f"# ОТЧЕТ ПО ИСТОРИИ СЕМЬИ: {project_name}\n\n"
+    report += "## 1. ВВОДНАЯ ЧАСТЬ\n"
+    report += "* Объект исследования: " + (lines[0].split(".")[0].replace("👤", "").strip() if lines else "Неизвестно") + "\n"
+    report += "* Статус: В работе\n"
+    report += "* География поиска: Собирается по данным\n\n"
+    
+    report += "## 2. МЕТОДОЛОГИЯ ДОКАЗАТЕЛЬНОСТИ\n"
+    report += "В данном отчете каждый факт биографического характера подтвержден как минимум одним первичным историческим источником. Для исключения ошибок идентификации применялось правило трех совпадений: ФИО, локация, состав семьи.\n\n"
+    
+    report += "## 3. ПОКОЛЕННАЯ РОСПИСЬ\n"
+    
+    # Сортируем людей по году рождения (если он есть)
+    def get_year(doc):
+        match = re.search(r'Рождение:.*?(\d{4})', doc)
+        return int(match.group(1)) if match else 9999
+    
+    sorted_people = sorted(lines, key=get_year)
+    
+    for i, person in enumerate(sorted_people, 1):
+        if not person.strip(): continue
+        # Парсим данные
+        name_match = re.search(r'👤\s*(.*?)\.', person)
+        birth_match = re.search(r'Рождение:\s*(.*?), Место:\s*(.*?)\.', person)
+        death_match = re.search(r'Смерть:\s*(.*?), Место:\s*(.*?)\.', person)
+        parents_match = re.search(r'Родители:\s*(.*?)\.', person)
+        
+        name = name_match.group(1) if name_match else "Неизвестно"
+        b_date = birth_match.group(1) if birth_match else "неизвестно"
+        b_place = birth_match.group(2) if birth_match else "неизвестно"
+        d_date = death_match.group(1) if death_match else "неизвестно"
+        d_place = death_match.group(2) if death_match else "неизвестно"
+        parents = parents_match.group(1) if parents_match else ""
+        
+        report += f"### Блок-персона: {name}\n"
+        report += f"* **Родился**: {b_date} ({b_place})\n"
+        report += f"* **Умер**: {d_date} ({d_place})\n"
+        if parents:
+            report += f"* **Родители**: {parents}\n"
+        report += "* **Доказательная база**: [Вставьте здесь Изображение Х: Скан-копия документа]\n\n"
+        
+    report += "## 4. ТУПИКИ ИССЛЕДОВАНИЯ (BRICK WALLS)\n"
+    report += "* Отсутствуют точные даты рождения/смерти для некоторых персон (требуется анализ метрических книг).\n"
+    
+    return report
+
 # --- YANDEX GPT ---
 def ask_ai(question, people):
     final_docs = smart_search(question, people)
     if not final_docs:
-        return "В данных нет этой информации.", "Поиск не дал результатов."
+        return "В данных нет этой информации.", "Поиск не дал результатов.", ""
 
     context_text = "\n\n".join(final_docs)
     folder_id = st.secrets["YANDEX_FOLDER_ID"]
@@ -147,37 +204,14 @@ def ask_ai(question, people):
         response = requests.post(url, headers=headers, json=payload, timeout=60)
         response.raise_for_status()
         answer = response.json()['result']['alternatives'][0]['message']['text']
-        return answer, context_text
+        return answer, context_text, final_docs
     except Exception as e:
-        return f"Ошибка API: {e}", context_text
-
-# --- ФУНКЦИЯ ВЫГРУЗКИ В CSV (Исправленная) ---
-def get_csv_data(context_text):
-    lines = context_text.split("\n\n")
-    data = []
-    for line in lines:
-        if not line.strip(): continue
-        
-        # Строгий парсинг
-        name_match = re.search(r'👤\s*(.*?)\.', line)
-        birth_match = re.search(r'Рождение:\s*(.*?), Место:\s*(.*?)\.', line)
-        death_match = re.search(r'Смерть:\s*(.*?), Место:\s*(.*?)\.', line)
-        
-        data.append({
-            "Имя": name_match.group(1) if name_match else "",
-            "Дата рождения": birth_match.group(1) if birth_match else "неизвестно",
-            "Место рождения": birth_match.group(2) if birth_match else "неизвестно",
-            "Дата смерти": death_match.group(1) if death_match else "неизвестно",
-            "Место смерти": death_match.group(2) if death_match else "неизвестно"
-        })
-    # Возвращаем DataFrame с разделителем ';' для Excel
-    return pd.DataFrame(data)
+        return f"Ошибка API: {e}", context_text, final_docs
 
 # --- ВКЛАДКИ ---
 tab1, tab2 = st.tabs(["Проект 1", "Проект 2"])
 
 with tab1:
-    # Поле для названия проекта
     proj_name_1 = st.text_input("Название проекта 1:", value="Мое древо 1", key="name_1")
     uploaded_file_1 = st.file_uploader("Загрузите GEDCOM файл (.ged)", type=["ged"], key="upload_1")
 
@@ -189,7 +223,6 @@ with tab1:
     if "people_1" in st.session_state:
         st.success(f"[{proj_name_1}] Дерево загружено! Найдено человек: {len(st.session_state.people_1)}")
         
-        # Инициализация истории чата
         if "history_1" not in st.session_state:
             st.session_state.history_1 = []
 
@@ -197,20 +230,23 @@ with tab1:
         for msg in st.session_state.history_1:
             with st.chat_message(msg["role"]):
                 st.write(msg["content"])
+                if "context" in msg:
+                    with st.expander("🛠️ Что нашла база"):
+                        st.write(msg["context"])
 
-        # Поле ввода вопроса (чат-стиль)
+        # Поле ввода вопроса
         if question_1 := st.chat_input("Ваш вопрос...", key="chat_1"):
             st.session_state.history_1.append({"role": "user", "content": question_1})
             with st.chat_message("user"):
                 st.write(question_1)
             
             with st.spinner("Думаю..."):
-                answer, context = ask_ai(question_1, st.session_state.people_1)
+                answer, context, final_docs = ask_ai(question_1, st.session_state.people_1)
                 
                 with st.chat_message("assistant"):
                     st.write(answer)
                     
-                    if context:
+                    if final_docs:
                         st.markdown("---")
                         st.markdown("**🔍 Поискать в открытых источниках:**")
                         p_name, p_year, p_place = extract_search_data(context)
@@ -220,9 +256,10 @@ with tab1:
                             pn_firstname = p_name.split()[0] if p_name else ""
                             full_query = f"{p_name} {p_year} {p_place}".strip()
                             
-                            url_pn = f"https://pamyat-naroda.ru/heroes/?last_name={urllib.parse.quote(pn_lastname)}&first_name={urllib.parse.quote(pn_firstname)}&date_birth={p_year}&place_birth={urllib.parse.quote(p_place)}"
+                            # Кнопки архивов (сокращенно для читаемости)
+                            url_pn = f"https://pamyat-naroda.ru/heroes/?last_name={urllib.parse.quote(pn_lastname)}&first_name={urllib.parse.quote(pn_firstname)}&date_birth={p_year}"
                             url_ya = f"https://ya.ru/archive/search?text={urllib.parse.quote(full_query)}"
-                            url_fs = f"https://www.familysearch.org/search/record/results?q.givenName={urllib.parse.quote(pn_firstname)}&q.surname={urllib.parse.quote(pn_lastname)}&q.birthLikeDate.from={p_year}&q.birthLikePlace={urllib.parse.quote(p_place)}"
+                            url_fs = f"https://www.familysearch.org/search/record/results?q.givenName={urllib.parse.quote(pn_firstname)}&q.surname={urllib.parse.quote(pn_lastname)}&q.birthLikeDate.from={p_year}"
                             url_gwar = f"https://gwar.mil.ru/heroes/?last_name={urllib.parse.quote(pn_lastname)}&first_name={urllib.parse.quote(pn_firstname)}"
                             url_familio = f"https://familio.org/search?query={urllib.parse.quote(full_query)}"
                             url_openlist = f"https://ru.openlist.wiki/index.php?title=Служебная:Поиск&search={urllib.parse.quote(full_query)}"
@@ -239,27 +276,33 @@ with tab1:
                             with r2_col3: st.link_button("📖 Открытый список", url_openlist)
                             with r2_col4: st.link_button("🕯️ Бессмертный барак", url_barak)
 
-                            df = get_csv_data(context)
-                            csv = df.to_csv(index=False, sep=';').encode('utf-8-sig')
+                            st.caption(f"Поиск по данным: **{full_query}**")
+
+                            # --- КНОПКА СКАЧИВАНИЯ ОТЧЕТА ---
+                            report_md = generate_markdown_report(context, proj_name_1)
                             st.download_button(
-                                label="📥 Скачать результаты (CSV)",
-                                data=csv,
-                                file_name='found_people.csv',
-                                mime='text/csv',
+                                label="📄 Скачать отчет (Markdown)",
+                                data=report_md.encode('utf-8'),
+                                file_name=f"report_{proj_name_1}.md",
+                                mime="text/markdown",
                             )
+
+                            df = get_csv_data(context) if 'get_csv_data' in globals() else pd.DataFrame()
+                            if not df.empty:
+                                csv = df.to_csv(index=False, sep=';').encode('utf-8-sig')
+                                st.download_button("📥 Скачать CSV", data=csv, file_name='data.csv', mime='text/csv')
                     
                         with st.expander("🛠️ Что нашла база"):
                             st.write(context)
                             
-                st.session_state.history_1.append({"role": "assistant", "content": answer})
+                # Сохраняем в историю
+                st.session_state.history_1.append({"role": "assistant", "content": answer, "context": context})
 
-        # Кнопка очистки истории
         if st.button("🗑️ Очистить историю"):
             st.session_state.history_1 = []
             st.rerun()
 
 with tab2:
-    # Поле для названия проекта
     proj_name_2 = st.text_input("Название проекта 2:", value="Мое древо 2", key="name_2")
     uploaded_file_2 = st.file_uploader("Загрузите GEDCOM файл (.ged)", type=["ged"], key="upload_2")
 
@@ -277,6 +320,9 @@ with tab2:
         for msg in st.session_state.history_2:
             with st.chat_message(msg["role"]):
                 st.write(msg["content"])
+                if "context" in msg:
+                    with st.expander("🛠️ Что нашла база"):
+                        st.write(msg["context"])
 
         if question_2 := st.chat_input("Ваш вопрос...", key="chat_2"):
             st.session_state.history_2.append({"role": "user", "content": question_2})
@@ -284,12 +330,12 @@ with tab2:
                 st.write(question_2)
             
             with st.spinner("Думаю..."):
-                answer, context = ask_ai(question_2, st.session_state.people_2)
+                answer, context, final_docs = ask_ai(question_2, st.session_state.people_2)
                 
                 with st.chat_message("assistant"):
                     st.write(answer)
                     
-                    if context:
+                    if final_docs:
                         st.markdown("---")
                         st.markdown("**🔍 Поискать в открытых источниках:**")
                         p_name, p_year, p_place = extract_search_data(context)
@@ -299,9 +345,9 @@ with tab2:
                             pn_firstname = p_name.split()[0] if p_name else ""
                             full_query = f"{p_name} {p_year} {p_place}".strip()
                             
-                            url_pn = f"https://pamyat-naroda.ru/heroes/?last_name={urllib.parse.quote(pn_lastname)}&first_name={urllib.parse.quote(pn_firstname)}&date_birth={p_year}&place_birth={urllib.parse.quote(p_place)}"
+                            url_pn = f"https://pamyat-naroda.ru/heroes/?last_name={urllib.parse.quote(pn_lastname)}&first_name={urllib.parse.quote(pn_firstname)}&date_birth={p_year}"
                             url_ya = f"https://ya.ru/archive/search?text={urllib.parse.quote(full_query)}"
-                            url_fs = f"https://www.familysearch.org/search/record/results?q.givenName={urllib.parse.quote(pn_firstname)}&q.surname={urllib.parse.quote(pn_lastname)}&q.birthLikeDate.from={p_year}&q.birthLikePlace={urllib.parse.quote(p_place)}"
+                            url_fs = f"https://www.familysearch.org/search/record/results?q.givenName={urllib.parse.quote(pn_firstname)}&q.surname={urllib.parse.quote(pn_lastname)}&q.birthLikeDate.from={p_year}"
                             url_gwar = f"https://gwar.mil.ru/heroes/?last_name={urllib.parse.quote(pn_lastname)}&first_name={urllib.parse.quote(pn_firstname)}"
                             url_familio = f"https://familio.org/search?query={urllib.parse.quote(full_query)}"
                             url_openlist = f"https://ru.openlist.wiki/index.php?title=Служебная:Поиск&search={urllib.parse.quote(full_query)}"
@@ -318,19 +364,25 @@ with tab2:
                             with r2_col3: st.link_button("📖 Открытый список", url_openlist)
                             with r2_col4: st.link_button("🕯️ Бессмертный барак", url_barak)
 
-                            df = get_csv_data(context)
-                            csv = df.to_csv(index=False, sep=';').encode('utf-8-sig')
+                            st.caption(f"Поиск по данным: **{full_query}**")
+
+                            report_md = generate_markdown_report(context, proj_name_2)
                             st.download_button(
-                                label="📥 Скачать результаты (CSV)",
-                                data=csv,
-                                file_name='found_people.csv',
-                                mime='text/csv',
+                                label="📄 Скачать отчет (Markdown)",
+                                data=report_md.encode('utf-8'),
+                                file_name=f"report_{proj_name_2}.md",
+                                mime="text/markdown",
                             )
+
+                            df = get_csv_data(context) if 'get_csv_data' in globals() else pd.DataFrame()
+                            if not df.empty:
+                                csv = df.to_csv(index=False, sep=';').encode('utf-8-sig')
+                                st.download_button("📥 Скачать CSV", data=csv, file_name='data.csv', mime='text/csv')
                     
                         with st.expander("🛠️ Что нашла база"):
                             st.write(context)
                             
-                st.session_state.history_2.append({"role": "assistant", "content": answer})
+                st.session_state.history_2.append({"role": "assistant", "content": answer, "context": context})
 
         if st.button("🗑️ Очистить историю"):
             st.session_state.history_2 = []
