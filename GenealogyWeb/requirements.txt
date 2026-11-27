@@ -6,3 +6,4 @@ chromadb
 requests
 urllib3
 python-gedcom
+python-docx
