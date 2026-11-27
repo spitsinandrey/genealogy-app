@@ -197,12 +197,18 @@ def generate_line_report(path_names, family_graph):
     report += "## Цепочка поколений\n\n"
     
     for name in path_names:
-        p = family_graph[name]
-        report += f"### Блок-персона: {name}\n"
-        report += f"* **Родился**: {p['birth_date']} ({p['birth_place']})\n"
-        report += f"* **Умер**: {p['death_date']} ({p['death_place']})\n"
-        report += f"* **Родители**: {p['parents']}\n"
-        report += "* **Доказательная база**: [Вставьте сканы]\n\n"
+        # Берем данные из графа напрямую, а не из текста поиска
+        if name in family_graph:
+            p = family_graph[name]
+            report += f"### Блок-персона: {name}\n"
+            report += f"* **Родился**: {p['birth_date']} ({p['birth_place']})\n"
+            report += f"* **Умер**: {p['death_date']} ({p['death_place']})\n"
+            report += f"* **Родители**: {p['parents']}\n"
+            report += f"* **Дети**: {p['children']}\n" # Добавил детей для полноты
+            report += "* **Доказательная база**: [Вставьте сканы]\n\n"
+        else:
+            report += f"### Блок-персона: {name}\n(Данные не найдены в графе)\n\n"
+            
     return report
 
 # --- YANDEX GPT ---
