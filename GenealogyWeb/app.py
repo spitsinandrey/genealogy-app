@@ -3,6 +3,8 @@ import requests
 import os
 import re
 import urllib.parse
+import pandas as pd
+import io
 from gedcom.parser import Parser
 from gedcom.element.individual import IndividualElement
 
@@ -65,7 +67,8 @@ def parse_gedcom(uploaded_file):
                     if sub.get_tag() == 'DATE': d_date = translate_date(sub.get_value())
                     if sub.get_tag() == 'PLAC': d_place = sub.get_value()
         
-        text = f"Человек: {name_str}. Рождение: {b_date}, Место: {b_place}. Смерть: {d_date}, Место: {d_place}."
+        # Заменили "Человек:" на иконку 👤
+        text = f"👤 {name_str}. Рождение: {b_date}, Место: {b_place}. Смерть: {d_date}, Место: {d_place}."
         people_list.append(text)
     
     os.remove(temp_path)
@@ -105,18 +108,17 @@ def smart_search(question, people):
 
 # --- ИЗВЛЕЧЕНИЕ ДАННЫХ ДЛЯ ПОИСКА ---
 def extract_search_data(context_text):
-    # Берем первую строку (самый релевантный человек)
     first_line = context_text.split("\n")[0]
     
-    # Ищем имя (между "Человек: " и ". Рождение:")
-    name_match = re.search(r'Человек:\s*(.*?)\.', first_line)
+    # Ищем имя (после иконки 👤)
+    name_match = re.search(r'👤\s*(.*?)\.', first_line)
     name = name_match.group(1).strip() if name_match else ""
     
-    # Ищем год рождения (4 цифры после "Рождение:")
+    # Ищем год рождения
     birth_match = re.search(r'Рождение:\s*.*?(\d{4})', first_line)
     birth_year = birth_match.group(1) if birth_match else ""
     
-    # Ищем место рождения (между "Место: " и ". Смерть:")
+    # Ищем место рождения
     place_match = re.search(r'Рождение:.*?Место:\s*(.*?)\.', first_line)
     place = place_match.group(1).strip() if place_match else ""
     if place == "неизвестно": place = ""
@@ -157,18 +159,46 @@ def ask_ai(question, people):
     except Exception as e:
         return f"Ошибка API: {e}", context_text
 
+# --- ФУНКЦИЯ ВЫГРУЗКИ В CSV ---
+def get_csv_data(context_text):
+    lines = context_text.split("\n\n")
+    data = []
+    for line in lines:
+        if not line.strip(): continue
+        # Простейший парсинг строки для CSV
+        name_match = re.search(r'👤\s*(.*?)\.', line)
+        birth_match = re.search(r'Рождение:\s*(.*?), Место:\s*(.*?)\.', line)
+        death_match = re.search(r'Смерть:\s*(.*?), Место:\s*(.*?)\.', line)
+        
+        data.append({
+            "Имя": name_match.group(1) if name_match else "",
+            "Дата рождения": birth_match.group(1) if birth_match else "",
+            "Место рождения": birth_match.group(2) if birth_match else "",
+            "Дата смерти": death_match.group(1) if death_match else "",
+            "Место смерти": death_match.group(2) if death_match else ""
+        })
+    return pd.DataFrame(data)
+
 # --- ВКЛАДКИ ---
 tab1, tab2 = st.tabs(["🌳 Дерево 1", "🌳 Дерево 2"])
 
 with tab1:
-    uploaded_file_1 = st.file_uploader("Загрузите GEDCOM файл (.ged)", type=["ged"], key="upload_1")
+    col_upload, col_delete = st.columns([4, 1])
+    with col_upload:
+        uploaded_file_1 = st.file_uploader("Загрузите GEDCOM файл (.ged)", type=["ged"], key="upload_1")
+    with col_delete:
+        if st.button("🗑️ Удалить", key="del_1"):
+            if "people_1" in st.session_state:
+                del st.session_state.people_1
+                st.rerun()
+
     if uploaded_file_1 is not None:
         if "people_1" not in st.session_state:
             with st.spinner("Обрабатываю файл..."):
                 st.session_state.people_1 = parse_gedcom(uploaded_file_1)
-        st.success(f"Дерево загружено! Найдено человек: {len(st.session_state.people_1)}")
     
     if "people_1" in st.session_state:
+        st.success(f"Дерево загружено! Найдено человек: {len(st.session_state.people_1)}")
         with st.form(key='form_1'):
             question_1 = st.text_input("Ваш вопрос:", placeholder="Например: Кто такой Андрей Спицин?")
             submit_1 = st.form_submit_button("Спросить")
@@ -183,46 +213,75 @@ with tab1:
                     st.markdown("---")
                     st.markdown("**🔍 Поискать в открытых источниках:**")
                     
-                    # Извлекаем данные о человеке из найденного контекста
                     p_name, p_year, p_place = extract_search_data(context)
                     
                     if p_name:
-                        # Для Памяти Народа нужны отдельные поля
-                        pn_lastname = p_name.split()[-1] if p_name else "" # Берем последнее слово как фамилию
+                        pn_lastname = p_name.split()[-1] if p_name else ""
                         pn_firstname = p_name.split()[0] if p_name else ""
-                        
-                        url_pn = f"https://pamyat-naroda.ru/heroes/?last_name={urllib.parse.quote(pn_lastname)}&first_name={urllib.parse.quote(pn_firstname)}&date_birth={p_year}&place_birth={urllib.parse.quote(p_place)}"
-                        
-                        # Для Яндекса и FamilySearch нужна общая строка
                         full_query = f"{p_name} {p_year} {p_place}".strip()
+                        
+                        # Ссылки
+                        url_pn = f"https://pamyat-naroda.ru/heroes/?last_name={urllib.parse.quote(pn_lastname)}&first_name={urllib.parse.quote(pn_firstname)}&date_birth={p_year}&place_birth={urllib.parse.quote(p_place)}"
                         url_ya = f"https://ya.ru/archive/search?text={urllib.parse.quote(full_query)}"
                         url_fs = f"https://www.familysearch.org/search/record/results?q.givenName={urllib.parse.quote(pn_firstname)}&q.surname={urllib.parse.quote(pn_lastname)}&q.birthLikeDate.from={p_year}&q.birthLikePlace={urllib.parse.quote(p_place)}"
                         
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
+                        # Новые ссылки
+                        url_gwar = f"https://gwar.mil.ru/heroes/?last_name={urllib.parse.quote(pn_lastname)}&first_name={urllib.parse.quote(pn_firstname)}"
+                        url_familio = f"https://familio.org/search?query={urllib.parse.quote(full_query)}"
+                        url_openlist = f"https://ru.openlist.wiki/index.php?title=Служебная:Поиск&search={urllib.parse.quote(full_query)}"
+                        url_barak = f"https://bessmertnybarak.com/search/?q={urllib.parse.quote(full_query)}"
+
+                        # Вывод кнопок в 3 колонки
+                        r1_col1, r1_col2, r1_col3 = st.columns(3)
+                        with r1_col1:
                             st.link_button("🇷🇺 Память Народа", url_pn)
-                        with col2:
+                        with r1_col2:
                             st.link_button("🌍 FamilySearch", url_fs)
-                        with col3:
+                        with r1_col3:
                             st.link_button("📜 Архивы Яндекса", url_ya)
-                        
+                            
+                        r2_col1, r2_col2, r2_col3, r2_col4 = st.columns(4)
+                        with r2_col1:
+                            st.link_button("⚔️ Первая Мировая", url_gwar)
+                        with r2_col2:
+                            st.link_button("🌳 Familio", url_familio)
+                        with r2_col3:
+                            st.link_button("📖 Открытый список", url_openlist)
+                        with r2_col4:
+                            st.link_button("🕯️ Бессмертный барак", url_barak)
+
                         st.caption(f"Поиск по данным: **{full_query}**")
-                    else:
-                        st.warning("Не удалось автоматически извлечь данные для поиска из ответа.")
+                        
+                        # Выгрузка в CSV
+                        df = get_csv_data(context)
+                        csv = df.to_csv(index=False).encode('utf-8-sig')
+                        st.download_button(
+                            label="📥 Скачать результаты (CSV)",
+                            data=csv,
+                            file_name='found_people.csv',
+                            mime='text/csv',
+                        )
                 
                     with st.expander("🛠️ Что нашла база"):
                         st.write(context)
 
 with tab2:
-    # Аналогичный код для второй вкладки
-    uploaded_file_2 = st.file_uploader("Загрузите GEDCOM файл (.ged)", type=["ged"], key="upload_2")
+    col_upload, col_delete = st.columns([4, 1])
+    with col_upload:
+        uploaded_file_2 = st.file_uploader("Загрузите GEDCOM файл (.ged)", type=["ged"], key="upload_2")
+    with col_delete:
+        if st.button("🗑️ Удалить", key="del_2"):
+            if "people_2" in st.session_state:
+                del st.session_state.people_2
+                st.rerun()
+
     if uploaded_file_2 is not None:
         if "people_2" not in st.session_state:
             with st.spinner("Обрабатываю файл..."):
                 st.session_state.people_2 = parse_gedcom(uploaded_file_2)
-        st.success(f"Дерево загружено! Найдено человек: {len(st.session_state.people_2)}")
     
     if "people_2" in st.session_state:
+        st.success(f"Дерево загружено! Найдено человек: {len(st.session_state.people_2)}")
         with st.form(key='form_2'):
             question_2 = st.text_input("Ваш вопрос:", placeholder="Например: Кто такой Андрей Спицин?")
             submit_2 = st.form_submit_button("Спросить")
@@ -242,23 +301,44 @@ with tab2:
                     if p_name:
                         pn_lastname = p_name.split()[-1] if p_name else ""
                         pn_firstname = p_name.split()[0] if p_name else ""
+                        full_query = f"{p_name} {p_year} {p_place}".strip()
                         
                         url_pn = f"https://pamyat-naroda.ru/heroes/?last_name={urllib.parse.quote(pn_lastname)}&first_name={urllib.parse.quote(pn_firstname)}&date_birth={p_year}&place_birth={urllib.parse.quote(p_place)}"
-                        full_query = f"{p_name} {p_year} {p_place}".strip()
                         url_ya = f"https://ya.ru/archive/search?text={urllib.parse.quote(full_query)}"
                         url_fs = f"https://www.familysearch.org/search/record/results?q.givenName={urllib.parse.quote(pn_firstname)}&q.surname={urllib.parse.quote(pn_lastname)}&q.birthLikeDate.from={p_year}&q.birthLikePlace={urllib.parse.quote(p_place)}"
-                        
-                        col1, col2, col3 = st.columns(3)
-                        with col1:
+                        url_gwar = f"https://gwar.mil.ru/heroes/?last_name={urllib.parse.quote(pn_lastname)}&first_name={urllib.parse.quote(pn_firstname)}"
+                        url_familio = f"https://familio.org/search?query={urllib.parse.quote(full_query)}"
+                        url_openlist = f"https://ru.openlist.wiki/index.php?title=Служебная:Поиск&search={urllib.parse.quote(full_query)}"
+                        url_barak = f"https://bessmertnybarak.com/search/?q={urllib.parse.quote(full_query)}"
+
+                        r1_col1, r1_col2, r1_col3 = st.columns(3)
+                        with r1_col1:
                             st.link_button("🇷🇺 Память Народа", url_pn)
-                        with col2:
+                        with r1_col2:
                             st.link_button("🌍 FamilySearch", url_fs)
-                        with col3:
+                        with r1_col3:
                             st.link_button("📜 Архивы Яндекса", url_ya)
-                        
+                            
+                        r2_col1, r2_col2, r2_col3, r2_col4 = st.columns(4)
+                        with r2_col1:
+                            st.link_button("⚔️ Первая Мировая", url_gwar)
+                        with r2_col2:
+                            st.link_button("🌳 Familio", url_familio)
+                        with r2_col3:
+                            st.link_button("📖 Открытый список", url_openlist)
+                        with r2_col4:
+                            st.link_button("🕯️ Бессмертный барак", url_barak)
+
                         st.caption(f"Поиск по данным: **{full_query}**")
-                    else:
-                        st.warning("Не удалось автоматически извлечь данные для поиска из ответа.")
+                        
+                        df = get_csv_data(context)
+                        csv = df.to_csv(index=False).encode('utf-8-sig')
+                        st.download_button(
+                            label="📥 Скачать результаты (CSV)",
+                            data=csv,
+                            file_name='found_people.csv',
+                            mime='text/csv',
+                        )
                 
                     with st.expander("🛠️ Что нашла база"):
                         st.write(context)
