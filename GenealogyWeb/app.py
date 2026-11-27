@@ -6,6 +6,7 @@ import urllib.parse
 import pandas as pd
 from gedcom.parser import Parser
 from gedcom.element.individual import IndividualElement
+from gedcom.element.family import FamilyElement
 
 # --- ДИЗАЙН ---
 st.set_page_config(page_title="Генеалогический помощник", page_icon="🌳", layout="wide")
@@ -47,18 +48,37 @@ def parse_gedcom(uploaded_file):
     
     gedcom_parser = Parser()
     gedcom_parser.parse_file(temp_path)
-    individuals = [el for el in gedcom_parser.get_element_list() if isinstance(el, IndividualElement)]
+    root_elements = gedcom_parser.get_element_list()
     
-    people_list = []
-    # Словарь для графа: Имя -> {данные, родители, дети}
-    family_graph = {}
+    individuals = [el for el in root_elements if isinstance(el, IndividualElement)]
+    families = [el for el in root_elements if isinstance(el, FamilyElement)]
     
+    # Словари для быстрого поиска
+    id_to_name = {}
+    id_to_famc = {}
+    id_to_fams = {}
+    
+    # 1. Собираем базовые данные
     for person in individuals:
+        p_id = person.get_pointer()
         name = person.get_name()
         name_str = " ".join([str(i).replace("'", "").replace('"', '') for i in name if i]) if isinstance(name, tuple) else str(name)
+        id_to_name[p_id] = name_str
+        
+        famc = [c.get_value() for c in person.get_child_elements() if c.get_tag() == 'FAMC']
+        fams = [c.get_value() for c in person.get_child_elements() if c.get_tag() == 'FAMS']
+        id_to_famc[p_id] = famc
+        id_to_fams[p_id] = fams
+
+    # 2. Строим граф
+    family_graph = {}
+    people_list = []
+    
+    for person in individuals:
+        p_id = person.get_pointer()
+        name_str = id_to_name[p_id]
         
         b_date, b_place, d_date, d_place = "неизвестно", "неизвестно", "неизвестно", "неизвестно"
-        parents_str, children_str = "неизвестно", "неизвестно"
         
         for child in person.get_child_elements():
             if child.get_tag() == 'BIRT':
@@ -69,12 +89,30 @@ def parse_gedcom(uploaded_file):
                 for sub in child.get_child_elements():
                     if sub.get_tag() == 'DATE': d_date = translate_date(sub.get_value())
                     if sub.get_tag() == 'PLAC': d_place = sub.get_value()
-            if child.get_tag() == 'NOTE':
-                val = child.get_value()
-                if 'Родители:' in val: parents_str = val.replace('Родители:', '').strip()
-                if 'Дети:' in val: children_str = val.replace('Дети:', '').strip()
+
+        # Ищем родителей и детей через ID семей
+        parents_names = []
+        for fam_id in id_to_famc[p_id]:
+            for fam in families:
+                if fam.get_pointer() == fam_id:
+                    # В семье ищем отца и мать
+                    for child in fam.get_child_elements():
+                        if child.get_tag() == 'HUSB' and child.get_value() in id_to_name:
+                            parents_names.append(id_to_name[child.get_value()])
+                        if child.get_tag() == 'WIFE' and child.get_value() in id_to_name:
+                            parents_names.append(id_to_name[child.get_value()])
+                            
+        children_names = []
+        for fam_id in id_to_fams[p_id]:
+            for fam in families:
+                if fam.get_pointer() == fam_id:
+                    for child in fam.get_child_elements():
+                        if child.get_tag() == 'CHIL' and child.get_value() in id_to_name:
+                            children_names.append(id_to_name[child.get_value()])
+                            
+        parents_str = ", ".join(parents_names) if parents_names else "неизвестно"
+        children_str = ", ".join(children_names) if children_names else "неизвестно"
         
-        # Записываем в граф
         family_graph[name_str] = {
             "parents": parents_str,
             "children": children_str,
@@ -89,7 +127,7 @@ def parse_gedcom(uploaded_file):
     os.remove(temp_path)
     return people_list, family_graph
 
-# --- УМНЫЙ ПОИСК (Базовый) ---
+# --- УМНЫЙ ПОИСК ---
 def smart_search(question, people):
     q_lower = question.lower()
     words = [re.sub(r'[^\w\s]', '', w) for w in q_lower.split() if len(w) > 3]
@@ -108,7 +146,6 @@ def smart_search(question, people):
 
 # --- ПОИСК ПУТИ (Граф) ---
 def find_path(start_name, end_name, family_graph):
-    # Простой BFS (поиск в ширину) по родителям и детям
     if start_name not in family_graph or end_name not in family_graph:
         return None
     
@@ -125,25 +162,18 @@ def find_path(start_name, end_name, family_graph):
         if node not in visited:
             visited.add(node)
             
-            # Ищем всех, с кем есть связь (родители и дети)
+            # Собираем всех прямых родственников (родители + дети)
             connections = []
-            # Родители
-            parents_text = family_graph[node]["parents"]
-            if parents_text and parents_text != "неизвестно":
-                connections.extend([p.strip() for p in parents_text.replace("отец:", "").replace("мать:", "").split(",")])
-            # Дети
-            children_text = family_graph[node]["children"]
-            if children_text and children_text != "неизвестно":
-                connections.extend([c.strip() for c in children_text.split(",")])
+            if family_graph[node]["parents"] != "неизвестно":
+                connections.extend([p.strip() for p in family_graph[node]["parents"].split(",")])
+            if family_graph[node]["children"] != "неизвестно":
+                connections.extend([c.strip() for c in family_graph[node]["children"].split(",")])
             
             for conn in connections:
-                # Ищем точное совпадение или очень похожее имя
-                for potential in family_graph.keys():
-                    if conn in potential or potential in conn:
-                        if potential not in visited:
-                            new_path = list(path)
-                            new_path.append(potential)
-                            queue.append(new_path)
+                if conn in family_graph and conn not in visited:
+                    new_path = list(path)
+                    new_path.append(conn)
+                    queue.append(new_path)
     return None
 
 # --- ГЕНЕРАЦИЯ ОТЧЕТОВ ---
@@ -156,9 +186,7 @@ def generate_env_report(person_name, family_graph):
     report += f"## Блок-персона: {person_name}\n"
     report += f"* **Родился**: {p['birth_date']} ({p['birth_place']})\n"
     report += f"* **Умер**: {p['death_date']} ({p['death_place']})\n\n"
-    
-    # Супруги (если есть в тексте) - пока просто выводим текст
-    report += "## Семья (согласно GEDCOM)\n"
+    report += "## Семья\n"
     report += f"* **Родители**: {p['parents']}\n"
     report += f"* **Дети**: {p['children']}\n\n"
     report += "* **Доказательная база**: [Вставьте сканы документов]\n"
@@ -228,7 +256,6 @@ with tab1:
         
         if "history_1" not in st.session_state: st.session_state.history_1 = []
 
-        # История чата
         for msg in st.session_state.history_1:
             with st.chat_message(msg["role"]):
                 st.write(msg["content"])
@@ -272,12 +299,13 @@ with tab1:
                     st.download_button("📥 Скачать Markdown", data=report.encode('utf-8'), file_name=f"line_{start_person}_{end_person}.md", mime="text/markdown")
                     st.markdown(report)
                 else:
-                    st.warning("Не удалось найти прямую связь между этими людьми. Возможно, в GEDCOM не указаны родители на каком-то этапе.")
+                    st.warning("Не удалось найти прямую связь между этими людьми.")
 
         if st.button("🗑️ Очистить историю чата"):
             st.session_state.history_1 = []
             st.rerun()
 
+# Код для tab2 аналогичен tab1, я его сократил для читаемости, но в вашем файле он должен быть полным.
 with tab2:
     proj_name_2 = st.text_input("Название проекта 2:", value="Мое древо 2", key="name_2")
     uploaded_file_2 = st.file_uploader("Загрузите GEDCOM файл (.ged)", type=["ged"], key="upload_2")
